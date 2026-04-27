@@ -2,3 +2,8 @@ pandas
 pytest
 streamlit
 tabulate
+openai
+python-dotenv
+numpy
+pydantic
+tiktoken
