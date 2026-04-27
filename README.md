@@ -1,579 +1,206 @@
-# 🎵 Music Recommender Simulation
+# 🎵 VibeFinder 2.0
 
-## Project Summary
+**Base project:** VibeFinder 1.0 (Module 3 — Music Recommender Simulation)
 
-In this project you will build and explain a small music recommender system.
-
-Your goal is to:
-
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
-
-This project builds a small but complete music recommender simulation in Python. Given a user's taste profile — their preferred genre, mood, energy level, and sound texture preference — the system scores every song in a catalog and returns the best matches with an explanation of why each one fits. The goal isn't to build the next Spotify, but to understand the mechanics underneath it: how raw data about songs and users gets transformed into a ranked list of suggestions. Along the way the project also looks honestly at where simple systems like this fall short — the genres they ignore, the users they underserve, and the feedback loops they can accidentally create.
+VibeFinder 2.0 upgrades the original static scoring system into a conversational AI agent. The user describes a half-remembered song (or a mood they're in), the agent asks up to four clarifying questions, fuses structured scoring with semantic embeddings, and surfaces the best matches from a 20-song catalog with "This is it ✓ / Not quite ✗" confirmation buttons.
 
 ---
 
-## How The System Works
-
-Explain your design in plain language.
-
-Some prompts to answer:
-
-- What features does each `Song` use in your system
-  - For example: genre, mood, energy, tempo
-- What information does your `UserProfile` store
-- How does your `Recommender` compute a score for each song
-- How do you choose which songs to recommend
-
-You can include a simple diagram or bullet list if helpful.
-
-Real-world music recommenders like Spotify or YouTube don't just look at what genre you like — they combine hundreds of signals at once. They track what you skip, what you replay, what time of day you're listening, and even what other users with similar taste are enjoying. The result is a system that learns your preferences over time and gets smarter the more you use it.
-My version is much simpler, but it captures the core idea. Instead of learning from behavior, it takes a snapshot of what a user says they want — their preferred genre, mood, energy level, and whether they like acoustic or produced sounds — and scores every song in the catalog against those preferences. It's transparent, predictable, and easy to reason about — which is exactly what makes it a good starting point for understanding how real recommenders think before all the complexity gets layered on.
-Each Song in the system carries ten attributes pulled directly from the catalog: id, title, artist, genre, mood, energy, tempo_bpm, valence, danceability, and acousticness. The ones that do the most work in scoring are genre, mood, energy, valence, and acousticness — chosen because together they capture both the sonic character of a track and its emotional feel.
-A UserProfile stores four preference inputs: a favorite_genre, a favorite_mood, a target_energy level between 0 and 1, and a likes_acoustic boolean that signals whether the user prefers organic or produced sounds.
-The Recommender scores each song by comparing those preferences against the song's attributes using a weighted formula. Genre and mood are categorical matches — exact matches score highest, but neighboring genres and moods get partial credit so the system doesn't completely reject a song just because the label differs. Energy and valence use a proximity formula: 1.0 - |user_preference - song_value|, which rewards songs that are close to what the user wants rather than just high or low. Acousticness is handled as a directional preference — if the user likes acoustic sounds, higher acousticness scores better, and vice versa.
-The weights reflect a deliberate hierarchy:
-
-- Genre: 3.0 — defines the entire sonic world
-- Mood: 2.5 — sets the emotional intent
-- Energy: 2.0 — captures the physical feel
-- Valence: 1.5 — fine-tunes emotional tone
-- Acousticness: 1.0 — texture preference
-
-Every song's weighted component scores are summed and divided by the total possible weight (10.0) to produce a final score between 0 and 1. Songs are then ranked by score and the top-k results are returned, each paired with a plain-language explanation of what made it a good match.
-
-### Song Features
-
-| Attribute | Type | Role |
-| `genre` | string | Primary scoring feature — weight 3.0 |
-| `mood` | string | Secondary scoring feature — weight 2.5 |
-| `energy` | float 0–1 | Proximity scored — weight 2.0 |
-| `valence` | float 0–1 | Proximity scored — weight 1.5 |
-| `acousticness` | float 0–1 | Directional preference scored — weight 1.0 |
-| `tempo_bpm` | float | Available but not scored in v1 |
-| `danceability` | float 0–1 | Available but not scored in v1 |
-| `title`, `artist`, `id` | — | Display only, not scored |
-
-### UserProfile Features
-
-| Attribute | Type | What it represents |
-| `favorite_genre` | string | Matched against song genre |
-| `favorite_mood` | string | Matched against song mood |
-| `target_energy` | float 0–1 | Ideal energy level — proximity scored |
-| `likes_acoustic` | boolean | True = prefers acoustic, False = prefers produced |
-
-### Algorithm Recipe
-
-The recommender scores each song by running it through five feature checks and adding up the weighted results.
-
-**Genre (weight 3.0):** An exact match scores 1.0. If the song's genre is in the same broader family — say, hip-hop when the user asked for rap — it scores 0.6. A more distant but still related genre scores 0.3. No connection at all scores 0.0.
-
-**Mood (weight 2.5):** Exact match scores 1.0. An adjacent mood — something like "melancholy" when the user said "sad" — scores 0.5. A loosely related mood scores 0.2. Unrelated moods score 0.0.
-
-**Energy (weight 2.0):** Scored by proximity: `1.0 - |user.target_energy - song.energy|`. A song that perfectly matches the user's energy level scores 1.0; the further away it lands, the lower the score.
-
-**Valence (weight 1.5):** Same proximity formula as energy: `1.0 - |user.valence - song.valence|`. If the user hasn't specified a valence preference, the song's value is compared against a neutral default of 0.5.
-
-**Acousticness (weight 1.0):** Directional rather than proximity-based. If the user likes acoustic sounds, the song's raw acousticness value is used as-is. If they prefer produced sounds, the score is flipped: `1.0 - song.acousticness`.
-
-The five weighted scores are summed and divided by 10.0 — the total possible weight — producing a final score between 0 and 1. Songs are ranked by this score, and the top-k are returned with a plain-language explanation of what made each one a good match.
-
-### Known Biases and Limitations
-
-- **Genre dominates everything.** With a weight of 3.0 — triple that of acousticness — a song in the wrong genre can barely compete no matter how well it matches on energy, mood, or texture. A jazz fan will almost never see a soul track in their recommendations even if the two share identical character.
-- **Most genres have thin catalog coverage.** The 20-song catalog concentrates in a handful of genres, so users who prefer less-represented styles like classical or reggae will hit a ceiling of good matches quickly and may receive off-genre recommendations simply because there's nothing closer in stock.
-- **No behavioral learning.** The system only knows what users say they want, not what they actually listen to. It can't correct itself when stated preference and real preference diverge, and it won't pick up on shifts in taste over time the way a streaming platform would.
-- **Filter bubble risk.** Heavy weighting toward exact or near matches means the same cluster of songs tends to surface for similar user profiles. Users are never nudged toward music outside their stated preferences, which can reinforce existing taste rather than broaden it.
-- **Valence is often a guess.** If the user doesn't provide a valence preference, the system quietly defaults to 0.5 — neutral — which disadvantages both very uplifting and very somber tracks even when the user might have loved them.
-
----
-
-## Data Flow
+## Architecture
 
 ```mermaid
 flowchart TD
-    CSV[("data/songs.csv\n20 songs · 10 columns\nid · title · artist · genre · mood\nenergy · tempo_bpm · valence · danceability · acousticness")]
-    CSV -->|"csv.DictReader, cast floats"| LS["load_songs(csv_path)\nreturns List[Dict]"]
+    USER(["User\ndescription"])
 
-    UP(["User Profile Dict\ngenre · mood · energy\nvalence · likes_acoustic"])
-    LS --> RS
-    UP --> RS["recommend_songs\nuser_prefs, songs, k=5"]
+    USER -->|"text ≤ 500 chars"| OFFTOPIC{"Off-topic?\nOFF_TOPIC_DETECTION_PROMPT\ngpt-4o-mini"}
+    OFFTOPIC -->|"yes"| REDIRECT["Redirect message\n↩ back to user"]
+    OFFTOPIC -->|"no"| EXTRACT
 
-    RS --> INIT["scored_songs = []"]
-    INIT --> CHK{"more songs\nto score?"}
-
-    CHK -->|"yes"| SS["score_song\nuser_prefs, song_dict"]
-
-    subgraph SCORING ["Feature Scoring  ·  total weight = 10.0"]
-        direction LR
-        G1["Genre × 3.0\nexact = 1.0\ncousin = 0.6\nfamily = 0.3\nnone = 0.0"]
-        M1["Mood × 2.5\nexact = 1.0\nadjacent = 0.5\ndistant = 0.2\nnone = 0.0"]
-        E1["Energy × 2.0\n1 − |user.energy − song.energy|"]
-        V1["Valence × 1.5\n1 − |user.valence − song.valence|\ndefault valence = 0.5"]
-        A1["Acousticness × 1.0\nif likes_acoustic: song.acousticness\nelse: 1 − song.acousticness"]
+    subgraph EXTRACTING ["EXTRACTING — gpt-4o-mini JSON mode"]
+        EXTRACT["extract_features()\nsrc/extractor.py\nExtractionResult: genre_hint · mood_hint\nenergy_level · acoustic_preference\nconfidence dict per field"]
     end
 
-    SS --> G1
-    SS --> M1
-    SS --> E1
-    SS --> V1
-    SS --> A1
+    EXTRACT --> MERGE["ConversationState.update_features()\nsrc/conversation.py\nkeep higher-confidence values\ntrim messages to last 10 turns"]
 
-    G1 & M1 & E1 & V1 & A1 --> RAW["raw = Σ weighted scores\nfinal_score = raw ÷ 10.0  →  range 0.0–1.0"]
-    RAW --> EXP["build reasons list\nassemble explanation string"]
-    EXP --> APP["append (song_dict, final_score, explanation)\nto scored_songs"]
-    APP -->|"next song"| CHK
+    MERGE --> CONF{"All features\nconfidence ≥ 0.75?"}
+    CONF -->|"no & questions_asked < 4"| QUESTION["_ask_question()\nQUESTION_GENERATION_PROMPT\ngpt-4o-mini → one targeted question"]
+    QUESTION -->|"user answers"| EXTRACT
 
-    CHK -->|"all 20 songs scored"| SORT["sort scored_songs\nby final_score DESC"]
-    SORT --> TOPK["scored_songs[:k]"]
-    TOPK --> OUT[/"top-k results\nList of Tuple[Dict, float, str]"/]
-    OUT --> PRNT["for each result:\nprint title · score · explanation"]
+    CONF -->|"yes"| MATCH
+
+    subgraph MATCHING ["MATCHING"]
+        MATCH["score_song() × 20\nsrc/recommender.py\nstructured_scores dict"]
+        MATCH --> EMBED["text-embedding-3-small\nsrc/rag.py\ncosine similarity on rich-text strings"]
+        EMBED --> FUSE["final = 0.4 × semantic + 0.6 × structured\nfilter rejected_ids"]
+        FUSE --> TOPK["top-5 candidates"]
+    end
+
+    TOPK --> CONFIRM["CONFIRMING\nStreamlit card buttons\nCONFIRMED:<id> · REJECTED:<id>"]
+
+    CONFIRM -->|"CONFIRMED"| DONE(["DONE — song found ✅"])
+    CONFIRM -->|"REJECTED"| REFINE["REFINING\nadd id → rejected_candidates\nrefinement_cycles += 1"]
+    REFINE -->|"cycles < 3"| USER
+    REFINE -->|"cycles == 3"| DONE
+
+    subgraph GUARDRAILS ["Guardrails"]
+        G1["max 4 questions"]
+        G2["max 3 refinement cycles"]
+        G3["max 20 API calls / session"]
+        G4["input length ≤ 500 chars"]
+        G5["off-topic redirect"]
+        G6["malformed JSON retry (×1)"]
+        G7["OpenAI failure → structured fallback"]
+        G8["empty results fallback message"]
+    end
 ```
 
 ---
 
-## Getting Started
+## Setup
 
-### Setup
+### Prerequisites
 
-1. Create a virtual environment (optional but recommended):
+- Python 3.10+
+- An OpenAI API key
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Mac or Linux
-   .venv\Scripts\activate         # Windows
-
-2. Install dependencies
+### Installation
 
 ```bash
+git clone <repo-url>
+cd lost-song-recovery-ai
+
+# Create and activate virtual environment (optional but recommended)
+python -m venv .venv
+source .venv/bin/activate      # Mac / Linux
+.venv\Scripts\activate         # Windows
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-3. Run the app:
+### Environment variables
+
+Copy `.env.example` to `.env` and fill in your key:
+
+```bash
+cp .env.example .env
+# Edit .env and set: OPENAI_API_KEY=sk-...
+```
+
+**Never commit `.env`.** It is listed in `.gitignore`.
+
+### Run the Streamlit app
+
+```bash
+streamlit run src/app.py
+```
+
+### Run the original CLI recommender (VibeFinder 1.0)
 
 ```bash
 python -m src.main
 ```
 
-### Running Tests
-
-Run the starter tests with:
+### Run all tests
 
 ```bash
 pytest
 ```
 
-You can add more tests in `tests/test_recommender.py`.
-
 ---
 
-## Sample Output
+## Sample Interactions
 
-Running `python -m src.main` with the **Gym Warrior** profile (genre: metal, mood: angry, energy: 0.95, likes_acoustic: False):
-
-![Gym Warrior](assets/gym_warrior.png)
+### 1 — Lofi study session found on first match
 
 ```
-==================================================
-Profile: Gym Warrior
-==================================================
+User:  "Something chill and acoustic to study to, lots of rain sounds vibe"
 
-Top recommendations:
+Agent: [extracts: genre=lofi, mood=chill, energy=0.35, acoustic=True, all confidence ≥ 0.85]
+       [matches — no questions asked]
 
-  #1  Iron Curtain - Razorback
-       Score: 96.2%  [###################-]
-       > genre match: metal -> metal (+3.00)
-       > mood match: angry -> angry (+2.50)
-       > energy proximity: |0.95 - 0.97| = 0.02 (+1.96)
-       > valence proximity: |0.5 - 0.31| = 0.19 (+1.22)
-       > acousticness: dislikes acoustic, song=0.06 (+0.94)
+Candidates:
+  #1  Library Rain — Paper Lanterns     match 94.1%
+  #2  Midnight Coding — LoRoom          match 91.3%
+  #3  Focus Flow — LoRoom               match 82.0%
 
-  #2  Storm Runner - Voltline
-       Score: 73.4%  [###############-----]
-       > genre match: metal -> rock (+1.80)
-       > mood match: angry -> intense (+1.25)
-       > energy proximity: |0.95 - 0.91| = 0.04 (+1.92)
-       > valence proximity: |0.5 - 0.48| = 0.02 (+1.47)
-       > acousticness: dislikes acoustic, song=0.10 (+0.90)
+User clicks: ✓ This is it  →  "Library Rain"
 
-  #3  Overdrive Protocol - Flux State
-       Score: 54.7%  [###########---------]
-       > genre match: metal -> electronic (+0.00)
-       > mood match: angry -> energetic (+1.25)
-       > energy proximity: |0.95 - 0.95| = 0.00 (+2.00)
-       > valence proximity: |0.5 - 0.66| = 0.16 (+1.26)
-       > acousticness: dislikes acoustic, song=0.04 (+0.96)
-
-  #4  Gym Hero - Max Pulse
-       Score: 52.5%  [###########---------]
-       > genre match: metal -> pop (+0.00)
-       > mood match: angry -> intense (+1.25)
-       > energy proximity: |0.95 - 0.93| = 0.02 (+1.96)
-       > valence proximity: |0.5 - 0.77| = 0.27 (+1.09)
-       > acousticness: dislikes acoustic, song=0.05 (+0.95)
-
-  #5  Block Party Anthem - DJ Krave
-       Score: 39.5%  [########------------]
-       > genre match: metal -> hip-hop (+0.00)
-       > mood match: angry -> confident (+0.00)
-       > energy proximity: |0.95 - 0.88| = 0.07 (+1.86)
-       > valence proximity: |0.5 - 0.72| = 0.22 (+1.17)
-       > acousticness: dislikes acoustic, song=0.08 (+0.92)
+Agent: "Found it! Library Rain by Paper Lanterns. Enjoy! 🎵"
 ```
 
-### Late-Night Study Session
-
-Running `python -m src.main` with the **Late-Night Study Session** profile (genre: lofi, mood: chill, energy: 0.38, likes_acoustic: True):
-
-![Late-Night Study Session](assets/late_night_study_session.png)
+### 2 — Late-night driver recovered after one clarifying question
 
 ```
-==================================================
-Profile: Late-Night Study Session
-==================================================
+User:  "I remember a track from a night drive, kind of dark and electronic"
 
-Top recommendations:
+Agent: [extracts: genre=synthwave confidence 0.72, mood=moody confidence 0.65 — below threshold]
 
-  #1  Library Rain - Paper Lanterns
-       Score: 96.5%  [###################-]
-       > genre match: lofi -> lofi (+3.00)
-       > mood match: chill -> chill (+2.50)
-       > energy proximity: |0.38 - 0.35| = 0.03 (+1.94)
-       > valence proximity: |0.5 - 0.6| = 0.10 (+1.35)
-       > acousticness: likes acoustic, song=0.86 (+0.86)
+Agent: "Was it purely electronic/synth, or did it have live guitar or drums in it?"
 
-  #2  Midnight Coding - LoRoom
-       Score: 95.4%  [###################-]
-       > genre match: lofi -> lofi (+3.00)
-       > mood match: chill -> chill (+2.50)
-       > energy proximity: |0.38 - 0.42| = 0.04 (+1.92)
-       > valence proximity: |0.5 - 0.56| = 0.06 (+1.41)
-       > acousticness: likes acoustic, song=0.71 (+0.71)
+User:  "Fully electronic, no live instruments at all"
 
-  #3  Focus Flow - LoRoom
-       Score: 83.5%  [#################---]
-       > genre match: lofi -> lofi (+3.00)
-       > mood match: chill -> focused (+1.25)
-       > energy proximity: |0.38 - 0.4| = 0.02 (+1.96)
-       > valence proximity: |0.5 - 0.59| = 0.09 (+1.36)
-       > acousticness: likes acoustic, song=0.78 (+0.78)
+Agent: [re-extracts: acoustic_preference=False confidence 0.92 — now all features confident]
+       [matches]
 
-  #4  Spacewalk Thoughts - Orbit Bloom
-       Score: 73.9%  [###############-----]
-       > genre match: lofi -> ambient (+0.90)
-       > mood match: chill -> chill (+2.50)
-       > energy proximity: |0.38 - 0.28| = 0.10 (+1.80)
-       > valence proximity: |0.5 - 0.65| = 0.15 (+1.27)
-       > acousticness: likes acoustic, song=0.92 (+0.92)
+Candidates:
+  #1  Night Drive Loop — Neon Echo     match 97.6%
+  #2  Overdrive Protocol — Flux State  match 56.2%
 
-  #5  Coffee Shop Stories - Slow Stereo
-       Score: 62.0%  [############--------]
-       > genre match: lofi -> jazz (+0.90)
-       > mood match: chill -> relaxed (+1.25)
-       > energy proximity: |0.38 - 0.37| = 0.01 (+1.98)
-       > valence proximity: |0.5 - 0.71| = 0.21 (+1.19)
-       > acousticness: likes acoustic, song=0.89 (+0.89)
+User clicks: ✓ This is it  →  "Night Drive Loop"
 ```
 
-### Late-Night Driver
-
-Running `python -m src.main` with the **Late-Night Driver** profile (genre: synthwave, mood: moody, energy: 0.75, likes_acoustic: False):
-
-![Late-Night Driver](assets/late_night_Driver.png)
+### 3 — Refinement cycle after rejection
 
 ```
-==================================================
-Profile: Late-Night Driver
-==================================================
+User:  "Angry metal workout track"
 
-Top recommendations:
+Agent: [extracts: genre=metal, mood=angry, energy=0.95, acoustic=False — all confident]
 
-  #1  Night Drive Loop - Neon Echo
-       Score: 97.6%  [####################]
-       > genre match: synthwave -> synthwave (+3.00)
-       > mood match: moody -> moody (+2.50)
-       > energy proximity: |0.75 - 0.75| = 0.00 (+2.00)
-       > valence proximity: |0.5 - 0.49| = 0.01 (+1.48)
-       > acousticness: dislikes acoustic, song=0.22 (+0.78)
+Candidates:
+  #1  Iron Curtain — Razorback    match 96.2%
+  #2  Storm Runner — Voltline     match 73.4%
 
-  #2  Overdrive Protocol - Flux State
-       Score: 56.2%  [###########---------]
-       > genre match: synthwave -> electronic (+1.80)
-       > mood match: moody -> energetic (+0.00)
-       > energy proximity: |0.75 - 0.95| = 0.20 (+1.60)
-       > valence proximity: |0.5 - 0.66| = 0.16 (+1.26)
-       > acousticness: dislikes acoustic, song=0.04 (+0.96)
+User clicks: ✗ Not quite  →  "Iron Curtain"
 
-  #3  Storm Runner - Voltline
-       Score: 40.5%  [########------------]
-       > genre match: synthwave -> rock (+0.00)
-       > mood match: moody -> intense (+0.00)
-       > energy proximity: |0.75 - 0.91| = 0.16 (+1.68)
-       > valence proximity: |0.5 - 0.48| = 0.02 (+1.47)
-       > acousticness: dislikes acoustic, song=0.10 (+0.90)
+Agent: "Got it — let me refine. What else can you tell me about the song?"
 
-  #4  Empty Bottle Blues - T. Ray Jackson
-       Score: 40.4%  [########------------]
-       > genre match: synthwave -> blues (+0.00)
-       > mood match: moody -> sad (+1.25)
-       > energy proximity: |0.75 - 0.44| = 0.31 (+1.38)
-       > valence proximity: |0.5 - 0.29| = 0.21 (+1.19)
-       > acousticness: dislikes acoustic, song=0.78 (+0.22)
+User:  "It had more of a rock feel, less pure metal"
 
-  #5  Block Party Anthem - DJ Krave
-       Score: 38.3%  [########------------]
-       > genre match: synthwave -> hip-hop (+0.00)
-       > mood match: moody -> confident (+0.00)
-       > energy proximity: |0.75 - 0.88| = 0.13 (+1.74)
-       > valence proximity: |0.5 - 0.72| = 0.22 (+1.17)
-       > acousticness: dislikes acoustic, song=0.08 (+0.92)
-```
+Agent: [re-extracts: genre=rock — updated]
+       [Iron Curtain rejected, re-matches]
 
-### Soul & Warmth Seeker
+Candidates:
+  #1  Storm Runner — Voltline     match 80.1%
+  #2  Iron Curtain excluded (rejected)
 
-Running `python -m src.main` with the **Soul & Warmth Seeker** profile (genre: soul, mood: uplifting, energy: 0.62, likes_acoustic: True):
-
-![Soul & Warmth Seeker](assets/soul_warmth_seeker.png)
-
-```
-==================================================
-Profile: Soul & Warmth Seeker
-==================================================
-
-Top recommendations:
-
-  #1  Rise Together - Deja Gold
-       Score: 88.6%  [##################--]
-       > genre match: soul -> soul (+3.00)
-       > mood match: uplifting -> uplifting (+2.50)
-       > energy proximity: |0.62 - 0.67| = 0.05 (+1.90)
-       > valence proximity: |0.5 - 0.88| = 0.38 (+0.93)
-       > acousticness: likes acoustic, song=0.53 (+0.53)
-
-  #2  Velvet Nights - Sable Moore
-       Score: 50.4%  [##########----------]
-       > genre match: soul -> r&b (+1.80)
-       > mood match: uplifting -> romantic (+0.00)
-       > energy proximity: |0.62 - 0.55| = 0.07 (+1.86)
-       > valence proximity: |0.5 - 0.78| = 0.28 (+1.08)
-       > acousticness: likes acoustic, song=0.30 (+0.30)
-
-  #3  Empty Bottle Blues - T. Ray Jackson
-       Score: 45.1%  [#########-----------]
-       > genre match: soul -> blues (+0.90)
-       > mood match: uplifting -> sad (+0.00)
-       > energy proximity: |0.62 - 0.44| = 0.18 (+1.64)
-       > valence proximity: |0.5 - 0.29| = 0.21 (+1.19)
-       > acousticness: likes acoustic, song=0.78 (+0.78)
-
-  #4  Coffee Shop Stories - Slow Stereo
-       Score: 44.7%  [#########-----------]
-       > genre match: soul -> jazz (+0.90)
-       > mood match: uplifting -> relaxed (+0.00)
-       > energy proximity: |0.62 - 0.37| = 0.25 (+1.50)
-       > valence proximity: |0.5 - 0.71| = 0.21 (+1.19)
-       > acousticness: likes acoustic, song=0.89 (+0.89)
-
-  #5  Rooftop Lights - Indigo Parade
-       Score: 43.5%  [#########-----------]
-       > genre match: soul -> indie pop (+0.00)
-       > mood match: uplifting -> happy (+1.25)
-       > energy proximity: |0.62 - 0.76| = 0.14 (+1.72)
-       > valence proximity: |0.5 - 0.81| = 0.31 (+1.03)
-       > acousticness: likes acoustic, song=0.35 (+0.35)
-```
-
-### Adversarial Profiles
-
-Three profiles designed to expose weaknesses in the scoring algorithm: a double-isolated genre/mood node, a mood-overrides-genre inversion, and a knife-edge contradiction where opposing features cancel out.
-
-![Adversarial 1 - Catalog Cliff](assets/adversarial_1_catalog_cliff.png)
-
-![Adversarial 2 - Mood Override](assets/adversarial_2_mood+override.png)
-
-![Adversarial 3 - Knife Edge](assets/adversarial_3_knife_edge.png)
-
-```
-==================================================
-Profile: Adversarial 1 - Catalog Cliff
-==================================================
-
-Top recommendations:
-
-  #1  Block Party Anthem - DJ Krave
-       Score: 95.3%  [###################-]
-       > genre match: hip-hop -> hip-hop (+3.00)
-       > mood match: confident -> confident (+2.50)
-       > energy proximity: |0.85 - 0.88| = 0.03 (+1.94)
-       > valence proximity: |0.5 - 0.72| = 0.22 (+1.17)
-       > acousticness: dislikes acoustic, song=0.08 (+0.92)
-
-  #2  Storm Runner - Voltline
-       Score: 42.5%  [########------------]
-       > genre match: hip-hop -> rock (+0.00)
-       > mood match: confident -> intense (+0.00)
-       > energy proximity: |0.85 - 0.91| = 0.06 (+1.88)
-       > valence proximity: |0.5 - 0.48| = 0.02 (+1.47)
-       > acousticness: dislikes acoustic, song=0.10 (+0.90)
-
-  #3  Night Drive Loop - Neon Echo
-       Score: 40.7%  [########------------]
-       > genre match: hip-hop -> synthwave (+0.00)
-       > mood match: confident -> moody (+0.00)
-       > energy proximity: |0.85 - 0.75| = 0.10 (+1.80)
-       > valence proximity: |0.5 - 0.49| = 0.01 (+1.48)
-       > acousticness: dislikes acoustic, song=0.22 (+0.78)
-
-  #4  Overdrive Protocol - Flux State
-       Score: 40.2%  [########------------]
-       > genre match: hip-hop -> electronic (+0.00)
-       > mood match: confident -> energetic (+0.00)
-       > energy proximity: |0.85 - 0.95| = 0.10 (+1.80)
-       > valence proximity: |0.5 - 0.66| = 0.16 (+1.26)
-       > acousticness: dislikes acoustic, song=0.04 (+0.96)
-
-  #5  Iron Curtain - Razorback
-       Score: 39.1%  [########------------]
-       > genre match: hip-hop -> metal (+0.00)
-       > mood match: confident -> angry (+0.00)
-       > energy proximity: |0.85 - 0.97| = 0.12 (+1.76)
-       > valence proximity: |0.5 - 0.31| = 0.19 (+1.22)
-       > acousticness: dislikes acoustic, song=0.06 (+0.94)
-
-==================================================
-Profile: Adversarial 2 - Mood Override
-==================================================
-
-Top recommendations:
-
-  #1  Overdrive Protocol - Flux State
-       Score: 66.6%  [#############-------]
-       > genre match: reggae -> electronic (+0.00)
-       > mood match: energetic -> energetic (+2.50)
-       > energy proximity: |0.92 - 0.95| = 0.03 (+1.94)
-       > valence proximity: |0.5 - 0.66| = 0.16 (+1.26)
-       > acousticness: dislikes acoustic, song=0.04 (+0.96)
-
-  #2  Island Time - Coral Roots
-       Score: 56.7%  [###########---------]
-       > genre match: reggae -> reggae (+3.00)
-       > mood match: energetic -> relaxed (+0.00)
-       > energy proximity: |0.92 - 0.52| = 0.40 (+1.20)
-       > valence proximity: |0.5 - 0.82| = 0.32 (+1.02)
-       > acousticness: dislikes acoustic, song=0.55 (+0.45)
-
-  #3  Storm Runner - Voltline
-       Score: 56.0%  [###########---------]
-       > genre match: reggae -> rock (+0.00)
-       > mood match: energetic -> intense (+1.25)
-       > energy proximity: |0.92 - 0.91| = 0.01 (+1.98)
-       > valence proximity: |0.5 - 0.48| = 0.02 (+1.47)
-       > acousticness: dislikes acoustic, song=0.10 (+0.90)
-
-  #4  Iron Curtain - Razorback
-       Score: 53.0%  [###########---------]
-       > genre match: reggae -> metal (+0.00)
-       > mood match: energetic -> angry (+1.25)
-       > energy proximity: |0.92 - 0.97| = 0.05 (+1.90)
-       > valence proximity: |0.5 - 0.31| = 0.19 (+1.22)
-       > acousticness: dislikes acoustic, song=0.06 (+0.94)
-
-  #5  Gym Hero - Max Pulse
-       Score: 52.8%  [###########---------]
-       > genre match: reggae -> pop (+0.00)
-       > mood match: energetic -> intense (+1.25)
-       > energy proximity: |0.92 - 0.93| = 0.01 (+1.98)
-       > valence proximity: |0.5 - 0.77| = 0.27 (+1.09)
-       > acousticness: dislikes acoustic, song=0.05 (+0.95)
-
-==================================================
-Profile: Adversarial 3 - Knife Edge
-==================================================
-
-Top recommendations:
-
-  #1  Overdrive Protocol - Flux State
-       Score: 57.0%  [###########---------]
-       > genre match: classical -> electronic (+0.00)
-       > mood match: energetic -> energetic (+2.50)
-       > energy proximity: |0.9 - 0.95| = 0.05 (+1.90)
-       > valence proximity: |0.5 - 0.66| = 0.16 (+1.26)
-       > acousticness: likes acoustic, song=0.04 (+0.04)
-
-  #2  Morning Prelude - Clara Voss
-       Score: 56.7%  [###########---------]
-       > genre match: classical -> classical (+3.00)
-       > mood match: energetic -> peaceful (+0.00)
-       > energy proximity: |0.9 - 0.18| = 0.72 (+0.56)
-       > valence proximity: |0.5 - 0.74| = 0.24 (+1.14)
-       > acousticness: likes acoustic, song=0.97 (+0.97)
-
-  #3  Storm Runner - Voltline
-       Score: 48.0%  [##########----------]
-       > genre match: classical -> rock (+0.00)
-       > mood match: energetic -> intense (+1.25)
-       > energy proximity: |0.9 - 0.91| = 0.01 (+1.98)
-       > valence proximity: |0.5 - 0.48| = 0.02 (+1.47)
-       > acousticness: likes acoustic, song=0.10 (+0.10)
-
-  #4  Iron Curtain - Razorback
-       Score: 43.9%  [#########-----------]
-       > genre match: classical -> metal (+0.00)
-       > mood match: energetic -> angry (+1.25)
-       > energy proximity: |0.9 - 0.97| = 0.07 (+1.86)
-       > valence proximity: |0.5 - 0.31| = 0.19 (+1.22)
-       > acousticness: likes acoustic, song=0.06 (+0.06)
-
-  #5  Gym Hero - Max Pulse
-       Score: 43.4%  [#########-----------]
-       > genre match: classical -> pop (+0.00)
-       > mood match: energetic -> intense (+1.25)
-       > energy proximity: |0.9 - 0.93| = 0.03 (+1.94)
-       > valence proximity: |0.5 - 0.77| = 0.27 (+1.09)
-       > acousticness: likes acoustic, song=0.05 (+0.05)
+User clicks: ✓ This is it  →  "Storm Runner"
 ```
 
 ---
 
-## Experiments You Tried
+## Design Decisions
 
-### Weight Shift: Genre 3.0 → 1.5, Energy 2.0 → 4.0, Normalizer 10.0 → 11.0
+**Why a generator-based agent loop?**
+The `run_session()` function is a Python generator that yields event dicts and receives user input via `.send()`. This keeps the entire state machine in one place (no callbacks, no async), makes it trivially testable with mocked clients, and lets Streamlit stream events to the UI without threading.
 
-The genre weight was halved, the energy weight was doubled, and the normalizer was updated to reflect the new total (11.0). All seven profiles were re-run and the rank-1 result was compared against the original weights.
+**Why fuse structured scores with semantic embeddings?**
+Structured scoring (VibeFinder 1.0) is precise but brittle — "heavy fast music" doesn't map cleanly to `genre=metal`. Semantic embeddings catch natural-language descriptions that the keyword matcher misses. Weighting 60% structured / 40% semantic preserves the explainability of the original system while broadening its surface area.
 
-**Result: no rank-1 winner changed for any profile.**
+**Why gpt-4o-mini for extraction and questions?**
+gpt-4o-mini is fast and cheap enough to call multiple times per conversation without noticeable latency. The structured outputs (JSON mode + Pydantic) mean the model's free-text generation is constrained to a schema, eliminating most hallucination risk for the feature fields.
 
-| Profile | Original #1 | Experiment #1 | Rank changed? |
-|---|---|---|---|
-| Gym Warrior | Iron Curtain (96.2%) | Iron Curtain (91.6%) | No |
-| Late-Night Study Session | Library Rain (96.5%) | Library Rain (91.7%) | No |
-| Late-Night Driver | Night Drive Loop (97.6%) | Night Drive Loop (93.3%) | No |
-| Soul & Warmth Seeker | Rise Together (88.6%) | Rise Together (84.2%) | No |
-| Adversarial 1 - Catalog Cliff | Block Party Anthem (95.3%) | Block Party Anthem (90.6%) | No |
-| Adversarial 2 - Mood Override | Overdrive Protocol (66.6%) | Overdrive Protocol (78.2%) | No — and worse |
-| Adversarial 3 - Knife Edge | Overdrive Protocol (57.0%) | Overdrive Protocol (69.1%) | No — and worse |
-
-**What it revealed:**
-
-The standard profiles are stable under weight perturbation because their genre and mood signals are strong enough that almost any reasonable configuration produces the same top result. The experiment did not fix the adversarial failures — it made them worse. Doubling the energy weight gave Overdrive Protocol even more scoring authority, pushing the Mood Override winner from 66.6% to 78.2% and widening the Knife Edge margin from 0.3 points to roughly 12 points. The failures in those two profiles are not caused by bad weight calibration. They stem from catalog sparsity (one reggae song, one classical song) and isolated mood nodes (no adjacency for `confident`, `nostalgic`, `romantic`). No weight adjustment fixes a structural gap in the catalog.
+**Why Pydantic for ExtractionResult?**
+Pydantic validates field types and ranges (e.g. `0.0 ≤ energy_level ≤ 1.0`) at parse time. A malformed LLM response fails fast and cleanly — the retry-then-fallback path kicks in instead of passing bad data downstream.
 
 ---
 
-## Limitations and Risks
+## Testing Summary
 
-- **Genre dominance and catalog sparsity.** With a weight of 3.0, genre controls nearly a third of the final score. But 10 of the 17 genres have only a single song each, so users who prefer classical, reggae, or hip-hop hit a ceiling immediately and often receive off-genre recommendations simply because there is nothing closer in stock.
-- **Orphaned mood nodes.** The moods `confident`, `nostalgic`, and `romantic` have zero adjacency connections in the mood neighborhood map. Songs carrying those moods score 0.0 on mood for every user who did not ask for them exactly, which means they can only surface through energy or acousticness proximity — signals that have nothing to do with emotional fit.
-- **Silent valence default.** No user profile specifies a `target_valence`, so the scorer defaults to 0.5 every time. This quietly advantages mid-valence songs like Overdrive Protocol (0.66) and disadvantages both very uplifting and very somber tracks, regardless of what the user might actually prefer.
-- **No behavioral learning.** The system only knows what users say they want, not what they actually listen to. It cannot correct itself when stated preference and real preference diverge, and it will not pick up on taste shifts over time the way a streaming platform would.
-
----
-
-## Reflection
-
-[**Model Card**](model_card.md)
-
-Building this recommender taught me that the scoring algorithm is the easy part — the data underneath it is what actually determines whether recommendations feel right or wrong. I expected the weight experiment to produce visibly different results, but halving genre weight and doubling energy weight changed nothing at rank 1 for any of the seven profiles I tested. The standard profiles passed because the catalog happened to have the right song in the right genre, and the adversarial profiles failed because of structural gaps — one reggae song, one classical song, orphaned mood nodes — that no amount of weight tuning could fix. The takeaway is that in real recommender systems, data coverage and feature connectivity often matter more than hyperparameter precision.
-
-The project also made me think differently about where bias and unfairness hide in systems like this. The most obvious bias — genre weight dominating — is visible and easy to reason about. The subtler ones are harder to catch: the valence default silently rewarding mid-range songs, Overdrive Protocol acting as a free rider because its feature profile happens to align with the scoring machinery's blind spots, and the Knife Edge failure where the system essentially flipped a coin between the user's preferred genre and an unrelated track. In a production system these quiet failures would shape what millions of users hear without anyone noticing, which is why transparent scoring and adversarial testing matter even for simple models.
+| File | Tests | What's covered |
+|---|---|---|
+| `tests/test_recommender.py` | 7 | Scoring algorithm, genre tiers, diversity, CSV loading |
+| `tests/test_extractor.py` | 6 | Acoustic detection, energy from adjectives, genre from instruments, off-topic, bad JSON fallback, confidence accumulation |
+| `tests/test_rag.py` | 5 | Lofi retrieval, folk retrieval, OpenAI fallback, fusion formula, rejected-ID exclusion |
+| `tests/test_agent.py` | 7 | Question cap, early termination, off-topic redirect, rejection tracking, refinement trigger, feature accumulation, full API failure |
+| **Total** | **25** | All mocked — no live API calls required |
