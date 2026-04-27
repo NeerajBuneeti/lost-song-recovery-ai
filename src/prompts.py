@@ -76,7 +76,7 @@ Candidates:
 {candidates}
 
 Return ONLY a JSON object mapping song id (as string) to explanation string:
-{"1": "explanation...", "2": "explanation..."}
+{{"1": "explanation...", "2": "explanation..."}}
 """
 
 OFF_TOPIC_DETECTION_PROMPT = """\

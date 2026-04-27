@@ -148,6 +148,9 @@ with col_cards:
                 st.markdown(f"**{song['title']}** — *{song['artist']}*")
                 st.caption(f"{song['genre']} · {song['mood']} · energy {song.get('energy', '?'):.2f}")
                 st.progress(min(float(score), 1.0), text=f"Match: {score * 100:.1f}%")
+                explanation = song.get("_explanation", "")
+                if explanation:
+                    st.markdown(f"*{explanation}*")
 
                 if not st.session_state.done:
                     c1, c2 = st.columns(2)

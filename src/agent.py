@@ -20,7 +20,7 @@ from src.conversation import ConversationState, Step
 from src.extractor import extract_features
 from src.recommender import load_songs, score_song
 import src.rag as rag
-from src.prompts import QUESTION_GENERATION_PROMPT, OFF_TOPIC_DETECTION_PROMPT
+from src.prompts import QUESTION_GENERATION_PROMPT, OFF_TOPIC_DETECTION_PROMPT, FINAL_EXPLANATION_PROMPT
 
 load_dotenv()
 
@@ -101,6 +101,57 @@ def _score_all_songs(state: ConversationState) -> Dict[int, float]:
     prefs = state.to_prefs_dict()
     songs = _get_songs()
     return {s["id"]: score_song(prefs, s)[0] for s in songs}
+
+
+def _generate_explanations(
+    candidates: List[Dict],
+    user_description: str,
+    features: Dict[str, Any],
+    state: ConversationState,
+    client: OpenAI,
+    max_candidates: int = 3,
+) -> None:
+    """
+    Call gpt-4o-mini once with FINAL_EXPLANATION_PROMPT to write a 2-sentence
+    explanation for each of the top candidates.  Results are stored in-place
+    as candidate["_explanation"].  Silent no-op on any failure.
+    """
+    import json as _json
+
+    if state.api_calls_used >= _MAX_API_CALLS or not candidates:
+        return
+
+    top = candidates[:max_candidates]
+    candidates_text = "\n".join(
+        f"ID {s['id']}: {s['title']} by {s['artist']}. "
+        f"Genre: {s['genre']}. Mood: {s['mood']}. Energy: {s.get('energy', '?')}."
+        for s in top
+    )
+    features_text = ", ".join(
+        f"{k}: {v}"
+        for k, v in features.items()
+        if k != "confidence" and v is not None
+    )
+    prompt = FINAL_EXPLANATION_PROMPT.format(
+        user_description=user_description,
+        features=features_text or "unknown",
+        candidates=candidates_text,
+    )
+
+    try:
+        state.api_calls_used += 1
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=400,
+        )
+        mapping = _json.loads(response.choices[0].message.content)
+        for song in top:
+            song["_explanation"] = mapping.get(str(song["id"]), "")
+    except Exception:
+        pass  # explanations are optional; cards render without them if this fails
 
 
 def run_session(client: Optional[OpenAI] = None) -> Generator[Dict[str, Any], str, None]:
@@ -215,6 +266,8 @@ def run_session(client: Optional[OpenAI] = None) -> Generator[Dict[str, Any], st
             user_input = yield {"type": "no_results", "step": state.step, "text": msg}
             continue
 
+        _generate_explanations(candidates, user_description, state.features, state, client)
+
         state.step = Step.CONFIRMING
         user_input = yield {
             "type": "candidates",
@@ -245,6 +298,7 @@ def run_session(client: Optional[OpenAI] = None) -> Generator[Dict[str, Any], st
                 final = rag.retrieve(
                     user_description, structured, state.rejected_candidates, client
                 )
+                _generate_explanations(final, user_description, state.features, state, client)
                 yield {"type": "done", "step": state.step, "text": msg, "candidates": final}
                 return
 
