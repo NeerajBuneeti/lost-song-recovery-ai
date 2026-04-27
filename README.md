@@ -56,6 +56,11 @@ flowchart TD
 
 ---
 
+## Demo Walkthrough
+[![VibeFinder 2.0 Demo](https://img.shields.io/badge/Watch-Loom%20Demo-blue)](https://www.loom.com/share/c264086326f9485dab2be4987039d890)
+
+Video: https://www.loom.com/share/c264086326f9485dab2be4987039d890
+
 ## Setup
 
 ### Prerequisites
